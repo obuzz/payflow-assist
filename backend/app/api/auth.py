@@ -18,9 +18,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserRegister,
+    response: Response,
     db: Session = Depends(get_db)
 ):
-    """Register a new user and business"""
+    """Register a new user and business, then auto-login"""
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
@@ -46,8 +47,35 @@ async def register(
     )
     db.add(user)
     db.commit()
+    db.refresh(user)
 
-    return {"message": "User created successfully"}
+    # Auto-login: Create tokens and set cookies
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+
+    # Set httpOnly cookies
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=1800  # 30 minutes
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=604800  # 7 days
+    )
+
+    return {
+        "message": "User created successfully",
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    }
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -73,7 +101,7 @@ async def login(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,
+        secure=False,  # Set to True in production with HTTPS
         samesite="lax",
         max_age=1800  # 30 minutes
     )
@@ -81,7 +109,7 @@ async def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=False,  # Set to True in production with HTTPS
         samesite="lax",
         max_age=604800  # 7 days
     )

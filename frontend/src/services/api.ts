@@ -31,6 +31,21 @@ export const invoiceApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+
+  addManual: (data: {
+    client_name: string;
+    client_email: string;
+    amount: string;
+    due_date: string;
+    invoice_number?: string;
+  }) =>
+    api.post('/invoices/manual', data),
+
+  markPaid: (invoiceId: string) =>
+    api.patch(`/invoices/${invoiceId}/mark-paid`),
+
+  delete: (invoiceId: string) =>
+    api.delete(`/invoices/${invoiceId}`),
 }
 
 export const reminderApi = {

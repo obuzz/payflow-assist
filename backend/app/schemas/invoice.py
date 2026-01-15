@@ -31,3 +31,11 @@ class InvoiceUploadResponse(BaseModel):
     success: int
     failed: int
     errors: list[str]
+
+
+class InvoiceManualCreate(BaseModel):
+    client_name: str = Field(..., min_length=1)
+    client_email: EmailStr
+    amount: str  # Accepts as string from frontend
+    due_date: str  # Accepts as string from frontend (YYYY-MM-DD)
+    invoice_number: Optional[str] = None

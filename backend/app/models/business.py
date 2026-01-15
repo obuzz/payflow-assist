@@ -32,3 +32,4 @@ class Business(Base):
     # Relationships
     users = relationship("User", back_populates="business")
     clients = relationship("Client", back_populates="business")
+    reminder_settings = relationship("ReminderSettings", back_populates="business", uselist=False)

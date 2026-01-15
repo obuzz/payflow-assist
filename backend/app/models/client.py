@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Boolean
+from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Boolean, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -26,6 +26,7 @@ class Client(Base):
         nullable=False
     )
     reminders_disabled = Column(Boolean, default=False, nullable=False)
+    relationship_notes = Column(Text, nullable=True)  # AI context about client relationship
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships

@@ -28,7 +28,10 @@ async def get_drafts(
         Client.email.label('client_email'),
         Invoice.amount,
         Invoice.days_overdue
-    ).join(Invoice).join(Client).filter(
+    ).select_from(ReminderDraft)\
+     .join(Invoice, ReminderDraft.invoice_id == Invoice.id)\
+     .join(Client, Invoice.client_id == Client.id)\
+     .filter(
         Client.business_id == current_user.business_id,
         ReminderDraft.approved == False,
         ReminderDraft.sent_at.is_(None)

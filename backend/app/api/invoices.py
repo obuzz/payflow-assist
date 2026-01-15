@@ -11,7 +11,7 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.client import Client
 from app.models.invoice import Invoice, InvoiceStatus, ExternalSource
-from app.schemas.invoice import InvoiceResponse, InvoiceUploadResponse
+from app.schemas.invoice import InvoiceResponse, InvoiceUploadResponse, InvoiceManualCreate
 from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -35,17 +35,19 @@ async def upload_invoices(
     failed_count = 0
     errors = []
 
-    try:
-        contents = await file.read()
-        csv_file = io.StringIO(contents.decode('utf-8'))
-        reader = csv.DictReader(csv_file)
+    # Read and validate CSV structure
+    contents = await file.read()
+    csv_file = io.StringIO(contents.decode('utf-8'))
+    reader = csv.DictReader(csv_file)
 
-        required_fields = {'client_name', 'client_email', 'amount', 'due_date'}
-        if not required_fields.issubset(set(reader.fieldnames or [])):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"CSV must contain fields: {', '.join(required_fields)}"
-            )
+    required_fields = {'client_name', 'client_email', 'amount', 'due_date'}
+    if not required_fields.issubset(set(reader.fieldnames or [])):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CSV must contain fields: {', '.join(required_fields)}"
+        )
+
+    try:
 
         for row_num, row in enumerate(reader, start=2):
             try:
@@ -130,9 +132,13 @@ async def upload_invoices(
 
     except Exception as e:
         db.rollback()
+        import traceback
+        error_detail = f"Failed to process CSV: {str(e)}"
+        print(f"ERROR in upload_invoices: {error_detail}")
+        print(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process CSV: {str(e)}"
+            detail=error_detail
         )
 
 
@@ -170,3 +176,172 @@ async def get_invoices(
         )
         for inv in invoices
     ]
+
+
+@router.post("/manual", status_code=status.HTTP_201_CREATED)
+async def add_invoice_manually(
+    invoice_data: InvoiceManualCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Manually add a single invoice"""
+    audit_service = AuditService(db)
+
+    try:
+        # Parse amount
+        amount = Decimal(invoice_data.amount.replace('£', '').replace(',', '').strip())
+        if amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Amount must be greater than 0"
+            )
+    except (InvalidOperation, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid amount format"
+        )
+
+    # Parse due date
+    try:
+        due_date = datetime.strptime(invoice_data.due_date.strip(), '%Y-%m-%d').date()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid date format. Use YYYY-MM-DD"
+        )
+
+    # Find or create client
+    client = db.query(Client).filter(
+        Client.business_id == current_user.business_id,
+        Client.email == invoice_data.client_email.lower()
+    ).first()
+
+    if not client:
+        client = Client(
+            business_id=current_user.business_id,
+            name=invoice_data.client_name.strip(),
+            email=invoice_data.client_email.lower()
+        )
+        db.add(client)
+        db.flush()
+
+    # Create invoice
+    # Create invoice
+    invoice = Invoice(
+        client_id=client.id,
+        amount=amount,
+        due_date=due_date,
+        external_source=ExternalSource.MANUAL,
+        status=InvoiceStatus.UNPAID
+    )
+    invoice.days_overdue = invoice.calculate_days_overdue()
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+
+    # Log the action
+    audit_service.log_action(
+        action="invoice_created_manually",
+        actor_id=current_user.id,
+        payload={
+            "invoice_id": str(invoice.id),
+            "client_name": invoice_data.client_name,
+            "amount": str(amount)
+        }
+    )
+
+    return {
+        "message": "Invoice created successfully",
+        "invoice_id": str(invoice.id)
+    }
+
+
+@router.patch("/{invoice_id}/mark-paid", status_code=status.HTTP_200_OK)
+async def mark_invoice_paid(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mark an invoice as paid"""
+    from uuid import UUID
+    
+    try:
+        invoice_uuid = UUID(invoice_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invoice ID format"
+        )
+    
+    # Get invoice and verify ownership
+    invoice = db.query(Invoice).join(Client).filter(
+        Invoice.id == invoice_uuid,
+        Client.business_id == current_user.business_id
+    ).first()
+    
+    if not invoice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found"
+        )
+    
+    invoice.status = InvoiceStatus.PAID
+    invoice.days_overdue = 0
+    db.commit()
+    
+    # Log the action
+    audit_service = AuditService(db)
+    audit_service.log_action(
+        action="invoice_marked_paid",
+        actor_id=current_user.id,
+        payload={"invoice_id": str(invoice.id)}
+    )
+    
+    return {"message": "Invoice marked as paid"}
+
+
+@router.delete("/{invoice_id}", status_code=status.HTTP_200_OK)
+async def delete_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete an invoice"""
+    from uuid import UUID
+    
+    try:
+        invoice_uuid = UUID(invoice_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invoice ID format"
+        )
+    
+    # Get invoice and verify ownership
+    invoice = db.query(Invoice).join(Client).filter(
+        Invoice.id == invoice_uuid,
+        Client.business_id == current_user.business_id
+    ).first()
+    
+    if not invoice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found"
+        )
+    
+    # Delete related reminder drafts first
+    from app.models.reminder_draft import ReminderDraft
+    db.query(ReminderDraft).filter(ReminderDraft.invoice_id == invoice_uuid).delete()
+    
+    # Log before deletion
+    audit_service = AuditService(db)
+    audit_service.log_action(
+        action="invoice_deleted",
+        actor_id=current_user.id,
+        payload={"invoice_id": str(invoice.id)}
+    )
+    
+    db.delete(invoice)
+    db.commit()
+    
+    return {"message": "Invoice deleted successfully"}

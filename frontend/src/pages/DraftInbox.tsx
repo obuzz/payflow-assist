@@ -103,13 +103,13 @@ export default function DraftInbox() {
               </div>
 
               <div className="hidden md:flex items-center space-x-1">
-                <Link to="/dashboard" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                <Link to="/app/dashboard" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Dashboard
                 </Link>
-                <Link to="/drafts" className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-900">
+                <Link to="/app/drafts" className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-900">
                   Draft Inbox
                 </Link>
-                <Link to="/upload" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                <Link to="/app/upload" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Upload
                 </Link>
               </div>
@@ -145,7 +145,7 @@ export default function DraftInbox() {
             </div>
             <h3 className="text-lg font-semibold text-slate-900 mb-2">All caught up</h3>
             <p className="text-slate-600 mb-6">No pending drafts to review</p>
-            <Link to="/dashboard" className="btn btn-primary text-sm">
+            <Link to="/app/dashboard" className="btn btn-primary text-sm">
               Back to Dashboard
             </Link>
           </div>

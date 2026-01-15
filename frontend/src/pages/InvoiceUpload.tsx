@@ -83,13 +83,13 @@ export default function InvoiceUpload() {
               </div>
 
               <div className="hidden md:flex items-center space-x-1">
-                <Link to="/dashboard" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                <Link to="/app/dashboard" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Dashboard
                 </Link>
-                <Link to="/drafts" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                <Link to="/app/drafts" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Draft Inbox
                 </Link>
-                <Link to="/upload" className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-900">
+                <Link to="/app/upload" className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-900">
                   Upload
                 </Link>
               </div>
