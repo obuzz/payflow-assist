@@ -48,11 +48,27 @@ export default function InvoiceUpload() {
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0]
-      if (droppedFile.name.endsWith('.csv')) {
+      const validExtensions = ['.csv', '.xlsx', '.xls']
+      const isValid = validExtensions.some(ext => droppedFile.name.toLowerCase().endsWith(ext))
+      if (isValid) {
         setFile(droppedFile)
         setResult(null)
       }
     }
+  }
+
+  const downloadTemplate = () => {
+    const csvContent = `client_name,client_email,amount,due_date,invoice_number
+ABC Company Ltd,billing@abccompany.com,850.00,2024-12-31,INV-001
+XYZ Ltd,contact@xyzltd.co.uk,1200.50,2025-01-15,INV-002`
+
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'invoice_template.csv'
+    a.click()
+    window.URL.revokeObjectURL(url)
   }
 
   const handleUpload = () => {
@@ -89,8 +105,14 @@ export default function InvoiceUpload() {
                 <Link to="/app/drafts" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Draft Inbox
                 </Link>
+                <Link to="/app/invoices" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                  Invoices
+                </Link>
                 <Link to="/app/upload" className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-900">
                   Upload
+                </Link>
+                <Link to="/app/settings" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                  Settings
                 </Link>
               </div>
             </div>
@@ -110,9 +132,20 @@ export default function InvoiceUpload() {
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-slate-900">Upload Invoices</h2>
-          <p className="mt-1 text-sm text-slate-600">Import your unpaid invoices from a CSV file</p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Upload Invoices</h2>
+            <p className="mt-1 text-sm text-slate-600">Import your unpaid invoices from a CSV or Excel file</p>
+          </div>
+          <button
+            onClick={downloadTemplate}
+            className="btn btn-secondary flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Download Template
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -148,7 +181,7 @@ export default function InvoiceUpload() {
                   ) : (
                     <>
                       <p className="text-sm font-medium text-slate-900 mb-1">
-                        Drag and drop your CSV file here
+                        Drag and drop your CSV or Excel file here
                       </p>
                       <p className="text-xs text-slate-500 mb-4">or</p>
                     </>
@@ -157,7 +190,7 @@ export default function InvoiceUpload() {
                   <label className="btn btn-secondary text-sm cursor-pointer">
                     <input
                       type="file"
-                      accept=".csv"
+                      accept=".csv,.xlsx,.xls"
                       onChange={handleFileChange}
                       className="hidden"
                     />
@@ -233,8 +266,12 @@ export default function InvoiceUpload() {
           <div className="space-y-6">
             {/* Format Guide */}
             <div className="card p-6">
-              <h3 className="text-sm font-semibold text-slate-900 mb-4">CSV Format</h3>
+              <h3 className="text-sm font-semibold text-slate-900 mb-4">File Format</h3>
               <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-slate-700 mb-1">Supported formats:</p>
+                  <p className="text-xs text-slate-600">CSV (.csv), Excel (.xlsx, .xls)</p>
+                </div>
                 <div>
                   <p className="text-xs font-medium text-slate-700 mb-1">Required columns:</p>
                   <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
@@ -247,6 +284,14 @@ export default function InvoiceUpload() {
                   </div>
                 </div>
                 <div>
+                  <p className="text-xs font-medium text-slate-700 mb-1">Optional columns:</p>
+                  <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
+                    <code className="text-xs text-slate-600 break-all">
+                      invoice_number
+                    </code>
+                  </div>
+                </div>
+                <div>
                   <p className="text-xs font-medium text-slate-700 mb-1">Date formats accepted:</p>
                   <p className="text-xs text-slate-600">YYYY-MM-DD or DD/MM/YYYY</p>
                 </div>
@@ -255,12 +300,12 @@ export default function InvoiceUpload() {
 
             {/* Example */}
             <div className="card p-6">
-              <h3 className="text-sm font-semibold text-slate-900 mb-4">Example CSV</h3>
+              <h3 className="text-sm font-semibold text-slate-900 mb-4">Example</h3>
               <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 overflow-x-auto">
                 <pre className="text-xs text-slate-600">
-{`client_name,client_email,amount,due_date
-ABC Company,contact@abc.com,850.00,2024-01-15
-XYZ Ltd,billing@xyz.co.uk,1200.50,2024-01-20`}
+{`client_name,client_email,amount,due_date,invoice_number
+ABC Company Ltd,billing@abc.com,850.00,31/12/2024,INV-001
+XYZ Ltd,contact@xyz.co.uk,1200.50,2025-01-15,INV-002`}
                 </pre>
               </div>
             </div>

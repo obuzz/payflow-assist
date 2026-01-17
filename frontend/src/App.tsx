@@ -9,6 +9,7 @@ import DraftInbox from '@/pages/DraftInbox'
 import InvoiceUpload from '@/pages/InvoiceUpload'
 import AddInvoice from '@/pages/AddInvoice'
 import Invoices from '@/pages/Invoices'
+import Settings from '@/pages/Settings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +37,7 @@ function App() {
           <Route path="/app/invoices" element={<Invoices />} />
           <Route path="/app/invoices/add" element={<AddInvoice />} />
           <Route path="/app/upload" element={<InvoiceUpload />} />
+          <Route path="/app/settings" element={<Settings />} />
 
           {/* Legacy routes - redirect to new structure */}
           <Route path="/dashboard" element={<Navigate to="/app/dashboard" replace />} />

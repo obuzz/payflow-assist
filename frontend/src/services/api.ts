@@ -44,6 +44,14 @@ export const invoiceApi = {
   markPaid: (invoiceId: string) =>
     api.patch(`/invoices/${invoiceId}/mark-paid`),
 
+  update: (invoiceId: string, data: {
+    client_name?: string;
+    client_email?: string;
+    amount?: string;
+    due_date?: string;
+  }) =>
+    api.patch(`/invoices/${invoiceId}`, data),
+
   delete: (invoiceId: string) =>
     api.delete(`/invoices/${invoiceId}`),
 }
@@ -63,6 +71,9 @@ export const reminderApi = {
 
   send: (draftId: string) =>
     api.post(`/reminders/${draftId}/send`),
+
+  markAsSent: (draftId: string) =>
+    api.post(`/reminders/${draftId}/mark-sent`),
 
   delete: (draftId: string) =>
     api.delete(`/reminders/${draftId}`),

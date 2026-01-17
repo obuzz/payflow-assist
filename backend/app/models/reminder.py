@@ -28,11 +28,11 @@ class ReminderDraft(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.id"), nullable=False)
-    tone = Column(Enum(ReminderTone), default=ReminderTone.FRIENDLY, nullable=False)
+    tone = Column(Enum(ReminderTone, values_callable=lambda x: [e.value for e in x]), default=ReminderTone.FRIENDLY, nullable=False)
     escalation_level = Column(Integer, default=1, nullable=False)  # 1, 2, 3, 4 for stages
     subject = Column(String(255), nullable=False)  # Email subject line
     body_text = Column(Text, nullable=False)
-    status = Column(Enum(ReminderStatus), default=ReminderStatus.PENDING, nullable=False)
+    status = Column(Enum(ReminderStatus, values_callable=lambda x: [e.value for e in x]), default=ReminderStatus.PENDING, nullable=False)
     approved = Column(Boolean, default=False, nullable=False)  # Legacy field, kept for compatibility
     auto_send_at = Column(DateTime, nullable=True)  # When to auto-send (if scheduled)
     sent_at = Column(DateTime, nullable=True)

@@ -1,20 +1,22 @@
 """
-AI Service for generating payment reminder emails using Claude API
+AI Service for generating payment reminder emails using OpenAI API
 """
-import anthropic
+from openai import OpenAI
 from typing import Dict, Optional
 from decimal import Decimal
 from datetime import date
+import json
+import re
 
 from app.core.config import settings
 from app.models.reminder import ReminderTone
 
 
 class AIService:
-    """Service for AI-powered email generation using Claude"""
+    """Service for AI-powered email generation using OpenAI"""
 
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
     def generate_reminder_email(
         self,
@@ -31,7 +33,7 @@ class AIService:
         previous_reminders_sent: int = 0
     ) -> Dict[str, str]:
         """
-        Generate a payment reminder email using Claude API
+        Generate a payment reminder email using OpenAI API
 
         Returns:
             Dict with 'subject' and 'body' keys containing the email content
@@ -105,26 +107,27 @@ Format your response as JSON with two keys:
 
 Do not include any markdown formatting in the email body. Use plain text only."""
 
-        # Call Claude API
-        message = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",  # Using Claude 3.5 Sonnet
-            max_tokens=1024,
+        # Call OpenAI API
+        response = self.client.chat.completions.create(
+            model=settings.OPENAI_MODEL,
             messages=[
+                {"role": "system", "content": "You are a professional business email writer specializing in payment reminders."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=1024,
+            temperature=0.7
         )
 
         # Parse response
-        response_text = message.content[0].text
+        response_text = response.choices[0].message.content
 
         # Extract JSON from response
-        import json
         try:
             # Try to parse as JSON directly
             result = json.loads(response_text)
         except json.JSONDecodeError:
             # If response includes markdown code blocks, extract JSON
-            import re
             json_match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
             if json_match:
                 result = json.loads(json_match.group(1))

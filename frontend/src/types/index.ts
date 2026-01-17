@@ -24,12 +24,30 @@ export interface ReminderDraft {
   client_email: string
   amount: number
   days_overdue: number
-  tone: 'friendly' | 'neutral' | 'firm'
+  tone: 'friendly' | 'professional' | 'firm' | 'formal'
+  escalation_level: number // 1-4
+  subject?: string
   body_text: string
+  status: 'pending' | 'approved' | 'scheduled' | 'sent' | 'failed'
   approved: boolean
+  auto_send_at?: string | null
   sent_at: string | null
+  delivery_status?: string | null
   snoozed_until: string | null
   created_at: string
+}
+
+export interface ReminderSettings {
+  id: string
+  business_id: string
+  auto_send_enabled: boolean
+  auto_approve_stage_1: boolean
+  stage_1_days: number
+  stage_2_days: number
+  stage_3_days: number
+  stage_4_days: number
+  created_at: string
+  updated_at: string
 }
 
 export interface DashboardStats {

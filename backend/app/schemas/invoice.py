@@ -39,3 +39,10 @@ class InvoiceManualCreate(BaseModel):
     amount: str  # Accepts as string from frontend
     due_date: str  # Accepts as string from frontend (YYYY-MM-DD)
     invoice_number: Optional[str] = None
+
+
+class InvoiceUpdate(BaseModel):
+    client_name: Optional[str] = Field(None, min_length=1)
+    client_email: Optional[EmailStr] = None
+    amount: Optional[str] = None  # Accepts as string from frontend
+    due_date: Optional[str] = None  # Accepts as string from frontend (YYYY-MM-DD)

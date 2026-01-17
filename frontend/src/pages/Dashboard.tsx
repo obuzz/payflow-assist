@@ -54,6 +54,9 @@ export default function Dashboard() {
                 <Link to="/app/upload" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Upload
                 </Link>
+                <Link to="/app/settings" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                  Settings
+                </Link>
               </div>
             </div>
 

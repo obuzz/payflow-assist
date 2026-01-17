@@ -8,10 +8,18 @@ from app.core.dependencies import get_current_user, require_active_subscription
 from app.models.user import User
 from app.models.client import Client
 from app.models.invoice import Invoice
-from app.models.reminder import ReminderDraft
-from app.schemas.reminder import ReminderDraftResponse, EditReminderRequest, SnoozeReminderRequest
+from app.models.reminder import ReminderDraft, ReminderStatus
+from app.models.settings import ReminderSettings
+from app.schemas.reminder import (
+    ReminderDraftResponse,
+    EditReminderRequest,
+    SnoozeReminderRequest,
+    ReminderSettingsResponse,
+    UpdateReminderSettingsRequest
+)
 from app.services.audit_service import AuditService
 from app.services.email_service import EmailService
+from app.services.draft_generation_service import get_draft_generation_service
 
 router = APIRouter(prefix="/reminders", tags=["reminders"])
 
@@ -32,9 +40,7 @@ async def get_drafts(
      .join(Invoice, ReminderDraft.invoice_id == Invoice.id)\
      .join(Client, Invoice.client_id == Client.id)\
      .filter(
-        Client.business_id == current_user.business_id,
-        ReminderDraft.approved == False,
-        ReminderDraft.sent_at.is_(None)
+        Client.business_id == current_user.business_id
     ).order_by(ReminderDraft.created_at.desc()).all()
 
     return [
@@ -46,7 +52,9 @@ async def get_drafts(
             amount=draft.amount,
             days_overdue=draft.days_overdue,
             tone=draft.ReminderDraft.tone.value,
+            escalation_level=draft.ReminderDraft.escalation_level,
             body_text=draft.ReminderDraft.body_text,
+            status=draft.ReminderDraft.status.value,
             approved=draft.ReminderDraft.approved,
             sent_at=draft.ReminderDraft.sent_at,
             snoozed_until=draft.ReminderDraft.snoozed_until,
@@ -235,6 +243,50 @@ async def send_reminder(
     return {"message": "Reminder sent successfully"}
 
 
+@router.post("/{draft_id}/mark-sent")
+async def mark_draft_as_sent(
+    draft_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mark a draft as sent (for manual copy-paste workflow)"""
+    draft = db.query(ReminderDraft).join(Invoice).join(Client).filter(
+        ReminderDraft.id == draft_id,
+        Client.business_id == current_user.business_id
+    ).first()
+
+    if not draft:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft not found"
+        )
+
+    if draft.sent_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Draft already marked as sent"
+        )
+
+    # Mark as sent
+    draft.status = ReminderStatus.SENT
+    draft.sent_at = datetime.utcnow()
+    draft.delivery_status = "manually_sent"
+    db.commit()
+
+    # Log the action
+    audit_service = AuditService(db)
+    audit_service.log_action(
+        action="draft_marked_sent",
+        actor_id=current_user.id,
+        payload={
+            "draft_id": str(draft.id),
+            "invoice_id": str(draft.invoice_id)
+        }
+    )
+
+    return {"message": "Draft marked as sent"}
+
+
 @router.delete("/{draft_id}")
 async def delete_draft(
     draft_id: str,
@@ -263,3 +315,140 @@ async def delete_draft(
     db.commit()
 
     return {"message": "Draft deleted"}
+
+
+# Settings endpoints
+
+@router.get("/settings", response_model=ReminderSettingsResponse)
+async def get_reminder_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get reminder settings for the business"""
+    settings = db.query(ReminderSettings).filter(
+        ReminderSettings.business_id == current_user.business_id
+    ).first()
+
+    if not settings:
+        # Create default settings if none exist
+        settings = ReminderSettings(
+            business_id=current_user.business_id
+        )
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+
+    return ReminderSettingsResponse(
+        id=settings.id,
+        business_id=settings.business_id,
+        auto_send_enabled=settings.auto_send_enabled,
+        auto_approve_stage_1=settings.auto_approve_stage_1,
+        stage_1_days=settings.stage_1_days,
+        stage_2_days=settings.stage_2_days,
+        stage_3_days=settings.stage_3_days,
+        stage_4_days=settings.stage_4_days,
+        created_at=settings.created_at,
+        updated_at=settings.updated_at
+    )
+
+
+@router.put("/settings", response_model=ReminderSettingsResponse)
+async def update_reminder_settings(
+    settings_data: UpdateReminderSettingsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update reminder settings for the business"""
+    settings = db.query(ReminderSettings).filter(
+        ReminderSettings.business_id == current_user.business_id
+    ).first()
+
+    if not settings:
+        settings = ReminderSettings(business_id=current_user.business_id)
+        db.add(settings)
+
+    # Validate escalation days are in order
+    days = [
+        settings_data.stage_1_days,
+        settings_data.stage_2_days,
+        settings_data.stage_3_days,
+        settings_data.stage_4_days
+    ]
+    if days != sorted(days):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Escalation stages must be in ascending order"
+        )
+
+    # Update settings
+    settings.auto_send_enabled = settings_data.auto_send_enabled
+    settings.auto_approve_stage_1 = settings_data.auto_approve_stage_1
+    settings.stage_1_days = settings_data.stage_1_days
+    settings.stage_2_days = settings_data.stage_2_days
+    settings.stage_3_days = settings_data.stage_3_days
+    settings.stage_4_days = settings_data.stage_4_days
+    settings.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(settings)
+
+    # Log settings update
+    audit_service = AuditService(db)
+    audit_service.log_action(
+        action="settings_updated",
+        actor_id=current_user.id,
+        payload={
+            "auto_send_enabled": settings_data.auto_send_enabled,
+            "auto_approve_stage_1": settings_data.auto_approve_stage_1,
+            "escalation_days": {
+                "stage_1": settings_data.stage_1_days,
+                "stage_2": settings_data.stage_2_days,
+                "stage_3": settings_data.stage_3_days,
+                "stage_4": settings_data.stage_4_days
+            }
+        }
+    )
+
+    return ReminderSettingsResponse(
+        id=settings.id,
+        business_id=settings.business_id,
+        auto_send_enabled=settings.auto_send_enabled,
+        auto_approve_stage_1=settings.auto_approve_stage_1,
+        stage_1_days=settings.stage_1_days,
+        stage_2_days=settings.stage_2_days,
+        stage_3_days=settings.stage_3_days,
+        stage_4_days=settings.stage_4_days,
+        created_at=settings.created_at,
+        updated_at=settings.updated_at
+    )
+
+
+@router.post("/generate-drafts")
+async def generate_drafts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Manually trigger draft generation for overdue invoices"""
+    draft_service = get_draft_generation_service(db)
+
+    drafts = draft_service.generate_drafts_for_overdue_invoices(
+        business_id=current_user.business_id,
+        max_drafts=50,
+        manual_trigger=True  # Manual button click, bypass auto_send check
+    )
+
+    # Log draft generation
+    audit_service = AuditService(db)
+    audit_service.log_action(
+        action="drafts_generated",
+        actor_id=current_user.id,
+        payload={
+            "count": len(drafts),
+            "draft_ids": [str(d.id) for d in drafts]
+        }
+    )
+
+    return {
+        "message": f"Generated {len(drafts)} reminder drafts",
+        "count": len(drafts)
+    }

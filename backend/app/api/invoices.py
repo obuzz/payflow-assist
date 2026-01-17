@@ -11,7 +11,7 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.client import Client
 from app.models.invoice import Invoice, InvoiceStatus, ExternalSource
-from app.schemas.invoice import InvoiceResponse, InvoiceUploadResponse, InvoiceManualCreate
+from app.schemas.invoice import InvoiceResponse, InvoiceUploadResponse, InvoiceManualCreate, InvoiceUpdate
 from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -23,11 +23,12 @@ async def upload_invoices(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload invoices via CSV file"""
-    if not file.filename.endswith('.csv'):
+    """Upload invoices via CSV or Excel file"""
+    file_extension = file.filename.lower().split('.')[-1]
+    if file_extension not in ['csv', 'xlsx', 'xls']:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only CSV files are accepted"
+            detail="Only CSV and Excel files (.csv, .xlsx, .xls) are accepted"
         )
 
     audit_service = AuditService(db)
@@ -35,16 +36,62 @@ async def upload_invoices(
     failed_count = 0
     errors = []
 
-    # Read and validate CSV structure
+    # Read file contents
     contents = await file.read()
-    csv_file = io.StringIO(contents.decode('utf-8'))
-    reader = csv.DictReader(csv_file)
 
+    # Convert Excel to CSV-like dict reader if needed
+    if file_extension in ['xlsx', 'xls']:
+        try:
+            from openpyxl import load_workbook
+            import tempfile
+
+            # Save to temp file (openpyxl needs a file path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as tmp:
+                tmp.write(contents)
+                tmp_path = tmp.name
+
+            # Load workbook and get active sheet
+            wb = load_workbook(tmp_path, read_only=True)
+            ws = wb.active
+
+            # Convert to list of dicts (like CSV DictReader)
+            rows = list(ws.values)
+            if not rows:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Excel file is empty"
+                )
+
+            headers = [str(h).lower().strip() for h in rows[0]]
+            reader = [dict(zip(headers, row)) for row in rows[1:]]
+
+            # Clean up temp file
+            import os
+            os.unlink(tmp_path)
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to read Excel file: {str(e)}"
+            )
+    else:
+        # CSV file
+        csv_file = io.StringIO(contents.decode('utf-8'))
+        csv_reader = csv.DictReader(csv_file)
+        headers = csv_reader.fieldnames or []
+        reader = list(csv_reader)
+
+    # Validate required fields
     required_fields = {'client_name', 'client_email', 'amount', 'due_date'}
-    if not required_fields.issubset(set(reader.fieldnames or [])):
+    if file_extension in ['xlsx', 'xls']:
+        available_fields = set(headers) if 'headers' in locals() else set()
+    else:
+        available_fields = set(headers)
+
+    if not required_fields.issubset(available_fields):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"CSV must contain fields: {', '.join(required_fields)}"
+            detail=f"File must contain columns: {', '.join(required_fields)}"
         )
 
     try:
@@ -72,6 +119,9 @@ async def upload_invoices(
 
                 client_name = row['client_name'].strip()
                 client_email = row['client_email'].strip().lower()
+
+                # Get optional invoice_number if provided
+                invoice_number = row.get('invoice_number', '').strip() if row.get('invoice_number') else None
 
                 if not client_name or not client_email:
                     errors.append(f"Row {row_num}: Client name and email are required")
@@ -298,6 +348,100 @@ async def mark_invoice_paid(
     )
     
     return {"message": "Invoice marked as paid"}
+
+
+@router.patch("/{invoice_id}", status_code=status.HTTP_200_OK)
+async def update_invoice(
+    invoice_id: str,
+    invoice_data: InvoiceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update invoice details"""
+    from uuid import UUID
+
+    try:
+        invoice_uuid = UUID(invoice_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invoice ID format"
+        )
+
+    # Get invoice and verify ownership
+    invoice = db.query(Invoice).join(Client).filter(
+        Invoice.id == invoice_uuid,
+        Client.business_id == current_user.business_id
+    ).first()
+
+    if not invoice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found"
+        )
+
+    # Get the associated client
+    client = db.query(Client).filter(Client.id == invoice.client_id).first()
+
+    # Update client details if provided
+    if invoice_data.client_name is not None:
+        client.name = invoice_data.client_name.strip()
+
+    if invoice_data.client_email is not None:
+        # Check if another client with this email exists
+        existing_client = db.query(Client).filter(
+            Client.business_id == current_user.business_id,
+            Client.email == invoice_data.client_email.lower(),
+            Client.id != client.id
+        ).first()
+
+        if existing_client:
+            # Move invoice to existing client
+            invoice.client_id = existing_client.id
+        else:
+            # Update current client's email
+            client.email = invoice_data.client_email.lower()
+
+    # Update invoice amount
+    if invoice_data.amount is not None:
+        try:
+            amount = Decimal(invoice_data.amount.replace('£', '').replace(',', '').strip())
+            if amount <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Amount must be greater than 0"
+                )
+            invoice.amount = amount
+        except (InvalidOperation, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid amount format"
+            )
+
+    # Update due date
+    if invoice_data.due_date is not None:
+        try:
+            due_date = datetime.strptime(invoice_data.due_date.strip(), '%Y-%m-%d').date()
+            invoice.due_date = due_date
+            # Recalculate days overdue
+            invoice.days_overdue = invoice.calculate_days_overdue()
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid date format. Use YYYY-MM-DD"
+            )
+
+    db.commit()
+
+    # Log the action
+    audit_service = AuditService(db)
+    audit_service.log_action(
+        action="invoice_updated",
+        actor_id=current_user.id,
+        payload={"invoice_id": str(invoice.id)}
+    )
+
+    return {"message": "Invoice updated successfully"}
 
 
 @router.delete("/{invoice_id}", status_code=status.HTTP_200_OK)

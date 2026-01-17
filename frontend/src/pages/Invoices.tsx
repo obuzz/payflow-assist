@@ -16,6 +16,13 @@ export default function Invoices() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'paid'>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editForm, setEditForm] = useState({
+    client_name: '',
+    client_email: '',
+    amount: '',
+    due_date: ''
+  })
 
   const { data: invoices = [], isLoading } = useQuery('invoices', () =>
     invoiceApi.getAll().then(res => res.data)
@@ -42,6 +49,18 @@ export default function Invoices() {
     }
   )
 
+  const updateMutation = useMutation(
+    ({ invoiceId, data }: { invoiceId: string; data: any }) =>
+      invoiceApi.update(invoiceId, data),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('invoices')
+        setIsEditing(false)
+        setSelectedInvoice(null)
+      }
+    }
+  )
+
   const handleLogout = async () => {
     await authApi.logout()
     navigate('/login')
@@ -54,6 +73,34 @@ export default function Invoices() {
       setSortField(field)
       setSortOrder('desc')
     }
+  }
+
+  const handleEditClick = (invoice: Invoice) => {
+    setIsEditing(true)
+    setEditForm({
+      client_name: invoice.client_name,
+      client_email: invoice.client_email,
+      amount: invoice.amount.toString(),
+      due_date: invoice.due_date
+    })
+  }
+
+  const handleSaveEdit = () => {
+    if (!selectedInvoice) return
+    updateMutation.mutate({
+      invoiceId: selectedInvoice.id,
+      data: editForm
+    })
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setEditForm({
+      client_name: '',
+      client_email: '',
+      amount: '',
+      due_date: ''
+    })
   }
 
   // Filter and sort invoices
@@ -141,6 +188,9 @@ export default function Invoices() {
                 </Link>
                 <Link to="/app/upload" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
                   Upload
+                </Link>
+                <Link to="/app/settings" className="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors">
+                  Settings
                 </Link>
               </div>
             </div>
@@ -394,106 +444,190 @@ export default function Invoices() {
 
             {/* Modal Content */}
             <div className="p-6 space-y-6">
-              {/* Client Info */}
-              <div>
-                <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Client</h4>
-                <div className="bg-slate-50 rounded-xl p-4">
-                  <p className="text-lg font-semibold text-slate-900">{selectedInvoice.client_name}</p>
-                  <p className="text-sm text-slate-600 mt-1">{selectedInvoice.client_email}</p>
-                </div>
-              </div>
-
-              {/* Invoice Details Grid */}
-              <div>
-                <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Details</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Amount</p>
-                    <p className="text-2xl font-bold text-slate-900">£{Number(selectedInvoice.amount).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Status</p>
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium mt-1 ${
-                      selectedInvoice.status === 'paid'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {selectedInvoice.status === 'paid' ? 'Paid' : 'Unpaid'}
-                    </span>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Due Date</p>
-                    <p className="text-lg font-semibold text-slate-900">
-                      {new Date(selectedInvoice.due_date).toLocaleDateString('en-GB', {
-                        day: '2-digit',
-                        month: 'long',
-                        year: 'numeric'
-                      })}
-                    </p>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Days Overdue</p>
-                    {selectedInvoice.days_overdue > 0 ? (
-                      <p className="text-lg font-semibold text-red-600">{selectedInvoice.days_overdue} days</p>
-                    ) : (
-                      <p className="text-lg font-semibold text-green-600">On time</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Timeline */}
-              <div>
-                <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Timeline</h4>
-                <div className="bg-slate-50 rounded-xl p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <svg className="w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+              {isEditing ? (
+                /* Edit Mode */
+                <>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Client Name</label>
+                      <input
+                        type="text"
+                        value={editForm.client_name}
+                        onChange={(e) => setEditForm({ ...editForm, client_name: e.target.value })}
+                        className="input w-full"
+                        placeholder="Client name"
+                      />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-900">Created</p>
-                      <p className="text-sm text-slate-600">
-                        {new Date(selectedInvoice.created_at).toLocaleDateString('en-GB', {
-                          day: '2-digit',
-                          month: 'long',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Client Email</label>
+                      <input
+                        type="email"
+                        value={editForm.client_email}
+                        onChange={(e) => setEditForm({ ...editForm, client_email: e.target.value })}
+                        className="input w-full"
+                        placeholder="client@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Amount (£)</label>
+                      <input
+                        type="text"
+                        value={editForm.amount}
+                        onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                        className="input w-full"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Due Date</label>
+                      <input
+                        type="date"
+                        value={editForm.due_date}
+                        onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })}
+                        className="input w-full"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* View Mode */
+                <>
+                  {/* Client Info */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Client</h4>
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-lg font-semibold text-slate-900">{selectedInvoice.client_name}</p>
+                      <p className="text-sm text-slate-600 mt-1">{selectedInvoice.client_email}</p>
+                    </div>
+                  </div>
+
+                  {/* Invoice Details Grid */}
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Details</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-50 rounded-xl p-4">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Amount</p>
+                        <p className="text-2xl font-bold text-slate-900">£{Number(selectedInvoice.amount).toFixed(2)}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Status</p>
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium mt-1 ${
+                          selectedInvoice.status === 'paid'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {selectedInvoice.status === 'paid' ? 'Paid' : 'Unpaid'}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Due Date</p>
+                        <p className="text-lg font-semibold text-slate-900">
+                          {new Date(selectedInvoice.due_date).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: 'long',
+                            year: 'numeric'
+                          })}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Days Overdue</p>
+                        {selectedInvoice.days_overdue > 0 ? (
+                          <p className="text-lg font-semibold text-red-600">{selectedInvoice.days_overdue} days</p>
+                        ) : (
+                          <p className="text-lg font-semibold text-green-600">On time</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Timeline - only show in view mode */}
+              {!isEditing && (
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">Timeline</h4>
+                  <div className="bg-slate-50 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">Created</p>
+                        <p className="text-sm text-slate-600">
+                          {new Date(selectedInvoice.created_at).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Modal Footer */}
             <div className="p-6 border-t border-slate-100 flex justify-between gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="btn btn-secondary text-red-600 hover:bg-red-50"
-                disabled={deleteMutation.isLoading}
-              >
-                Delete Invoice
-              </button>
-              <div className="flex gap-3">
-                {selectedInvoice.status === 'unpaid' && (
-                  <button
-                    onClick={() => markPaidMutation.mutate(selectedInvoice.id)}
-                    className="btn btn-primary"
-                    disabled={markPaidMutation.isLoading}
-                  >
-                    {markPaidMutation.isLoading ? 'Marking as Paid...' : 'Mark as Paid'}
-                  </button>
-                )}
+              {!isEditing && (
                 <button
-                  onClick={() => setSelectedInvoice(null)}
-                  className="btn btn-secondary"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="btn btn-secondary text-red-600 hover:bg-red-50"
+                  disabled={deleteMutation.isLoading}
                 >
-                  Close
+                  Delete Invoice
                 </button>
+              )}
+              <div className="flex gap-3 ml-auto">
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="btn btn-secondary"
+                      disabled={updateMutation.isLoading}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveEdit}
+                      className="btn btn-primary"
+                      disabled={updateMutation.isLoading}
+                    >
+                      {updateMutation.isLoading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleEditClick(selectedInvoice)}
+                      className="btn btn-secondary"
+                    >
+                      Edit
+                    </button>
+                    {selectedInvoice.status === 'unpaid' && (
+                      <button
+                        onClick={() => markPaidMutation.mutate(selectedInvoice.id)}
+                        className="btn btn-primary"
+                        disabled={markPaidMutation.isLoading}
+                      >
+                        {markPaidMutation.isLoading ? 'Marking as Paid...' : 'Mark as Paid'}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setSelectedInvoice(null)
+                        setIsEditing(false)
+                      }}
+                      className="btn btn-secondary"
+                    >
+                      Close
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

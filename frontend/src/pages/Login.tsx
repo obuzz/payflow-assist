@@ -19,7 +19,7 @@ export default function Login() {
     setError('')
     try {
       await authApi.login(data)
-      navigate('/dashboard')
+      navigate('/app/dashboard')
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Invalid email or password')
     } finally {
